@@ -39,6 +39,17 @@ router.get('/leaderboard', requireAuth, requireProteinAccess, async (req, res) =
   res.json({ month: now.toISOString(), leaderboard });
 });
 
+// GET /api/protein/user/:userId/logs — any user's log history (visible to all)
+router.get('/user/:userId/logs', requireAuth, requireProteinAccess, async (req, res) => {
+  const { page = 1, limit = 30 } = req.query;
+  const logs = await ProteinLog.find({ userId: req.params.userId })
+    .sort({ date: -1 })
+    .skip((page - 1) * limit)
+    .limit(Number(limit));
+  const total = await ProteinLog.countDocuments({ userId: req.params.userId });
+  res.json({ logs, total });
+});
+
 // GET /api/protein/my-logs — current user's log history
 router.get('/my-logs', requireAuth, requireProteinAccess, async (req, res) => {
   const { page = 1, limit = 30 } = req.query;

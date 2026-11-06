@@ -1,16 +1,25 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { ChevronLeft, Trash2, Pencil, Check, X } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { format, formatDistanceToNow } from 'date-fns';
 import api from '../../utils/api';
 import GlassCard from '../../components/ui/GlassCard';
 import BottomNav from '../../components/ui/BottomNav';
 import { Skeleton } from '../../components/ui/Loader';
+import { useAuth } from '../../context/AuthContext';
 import toast from 'react-hot-toast';
 
 export default function MyLogs() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const { user: me } = useAuth();
+
+  const uid = searchParams.get('uid');
+  const name = searchParams.get('name');
+  const isOwn = !uid || uid === me?._id;
+  const displayName = isOwn ? 'My Logs' : `${name || 'User'}'s Logs`;
+
   const [logs, setLogs] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -19,11 +28,13 @@ export default function MyLogs() {
 
   useEffect(() => {
     fetchLogs();
-  }, []);
+  }, [uid]);
 
   async function fetchLogs() {
+    setLoading(true);
     try {
-      const { data } = await api.get('/protein/my-logs');
+      const endpoint = isOwn ? '/protein/my-logs' : `/protein/user/${uid}/logs`;
+      const { data } = await api.get(endpoint);
       setLogs(data.logs);
       setTotal(data.total);
     } finally {
@@ -65,7 +76,7 @@ export default function MyLogs() {
           <ChevronLeft size={18} />
         </button>
         <div>
-          <h1 className="text-lg font-bold">My Logs</h1>
+          <h1 className="text-lg font-bold">{displayName}</h1>
           <p className="text-white/40 text-xs">{total} total entries</p>
         </div>
       </motion.div>
@@ -81,7 +92,6 @@ export default function MyLogs() {
                 animate={{ opacity: 1 }}
               >
                 <p className="text-white/40 text-sm">No logs yet</p>
-                <p className="text-white/30 text-xs mt-1">Start logging from the tracker!</p>
               </motion.div>
             )
             : logs.map((log, i) => (
@@ -89,11 +99,11 @@ export default function MyLogs() {
                   key={log._id}
                   initial={{ opacity: 0, x: -10 }}
                   animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 10 }}
                   transition={{ delay: i * 0.03 }}
                 >
                   <LogRow
                     log={log}
+                    isOwn={isOwn}
                     editing={editingId === log._id}
                     editSachets={editSachets}
                     onEdit={() => { setEditingId(log._id); setEditSachets(log.sachets); }}
@@ -112,7 +122,7 @@ export default function MyLogs() {
   );
 }
 
-function LogRow({ log, editing, editSachets, onEdit, onSaveEdit, onCancelEdit, onChangeSachets, onDelete }) {
+function LogRow({ log, isOwn, editing, editSachets, onEdit, onSaveEdit, onCancelEdit, onChangeSachets, onDelete }) {
   return (
     <GlassCard animate={false} className="flex items-center gap-3 py-3">
       <div className="w-10 h-10 rounded-xl gradient-bg flex items-center justify-center text-lg font-black flex-shrink-0">
@@ -120,7 +130,7 @@ function LogRow({ log, editing, editSachets, onEdit, onSaveEdit, onCancelEdit, o
           <input
             type="number"
             min={1}
-            max={10}
+            max={99}
             value={editSachets}
             onChange={(e) => onChangeSachets(Number(e.target.value))}
             className="w-8 bg-transparent text-center text-white text-sm font-bold outline-none"
@@ -140,27 +150,29 @@ function LogRow({ log, editing, editSachets, onEdit, onSaveEdit, onCancelEdit, o
           {formatDistanceToNow(new Date(log.loggedAt), { addSuffix: true })}
         </p>
       </div>
-      <div className="flex items-center gap-1 flex-shrink-0">
-        {editing ? (
-          <>
-            <button onClick={onSaveEdit} className="p-2 rounded-xl text-green-400 hover:bg-green-500/10">
-              <Check size={15} />
-            </button>
-            <button onClick={onCancelEdit} className="p-2 rounded-xl text-white/40 hover:bg-white/5">
-              <X size={15} />
-            </button>
-          </>
-        ) : (
-          <>
-            <button onClick={onEdit} className="p-2 rounded-xl text-white/30 hover:text-white hover:bg-white/5 transition-colors">
-              <Pencil size={14} />
-            </button>
-            <button onClick={onDelete} className="p-2 rounded-xl text-red-400/50 hover:text-red-400 hover:bg-red-500/10 transition-colors">
-              <Trash2 size={15} />
-            </button>
-          </>
-        )}
-      </div>
+      {isOwn && (
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {editing ? (
+            <>
+              <button onClick={onSaveEdit} className="p-2 rounded-xl text-green-400 hover:bg-green-500/10">
+                <Check size={15} />
+              </button>
+              <button onClick={onCancelEdit} className="p-2 rounded-xl text-white/40 hover:bg-white/5">
+                <X size={15} />
+              </button>
+            </>
+          ) : (
+            <>
+              <button onClick={onEdit} className="p-2 rounded-xl text-white/30 hover:text-white hover:bg-white/5 transition-colors">
+                <Pencil size={14} />
+              </button>
+              <button onClick={onDelete} className="p-2 rounded-xl text-red-400/50 hover:text-red-400 hover:bg-red-500/10 transition-colors">
+                <Trash2 size={15} />
+              </button>
+            </>
+          )}
+        </div>
+      )}
     </GlassCard>
   );
 }

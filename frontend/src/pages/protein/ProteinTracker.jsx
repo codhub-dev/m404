@@ -269,13 +269,16 @@ export default function ProteinTracker() {
 }
 
 function LeaderboardRow({ entry, rank, maxTotal, isMe }) {
+  const navigate = useNavigate();
   const pct = maxTotal > 0 ? (entry.total / maxTotal) * 100 : 0;
   const medals = ['🥇', '🥈', '🥉'];
   return (
     <motion.div
-      className={`glass rounded-2xl p-3.5 relative overflow-hidden ${isMe ? 'border-violet-500/30' : ''}`}
+      className={`glass rounded-2xl p-3.5 relative overflow-hidden cursor-pointer ${isMe ? 'border-violet-500/30' : ''}`}
       whileHover={{ scale: 1.01 }}
+      whileTap={{ scale: 0.98 }}
       transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+      onClick={() => navigate(`/protein/history?uid=${entry.user._id}&name=${encodeURIComponent(entry.user.name)}`)}
     >
       {/* Progress bar background */}
       <motion.div
