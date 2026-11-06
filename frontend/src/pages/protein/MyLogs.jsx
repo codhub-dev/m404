@@ -1,0 +1,166 @@
+import { useState, useEffect } from 'react';
+import { motion } from 'framer-motion';
+import { ChevronLeft, Trash2, Pencil, Check, X } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { format, formatDistanceToNow } from 'date-fns';
+import api from '../../utils/api';
+import GlassCard from '../../components/ui/GlassCard';
+import BottomNav from '../../components/ui/BottomNav';
+import { Skeleton } from '../../components/ui/Loader';
+import toast from 'react-hot-toast';
+
+export default function MyLogs() {
+  const navigate = useNavigate();
+  const [logs, setLogs] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [editingId, setEditingId] = useState(null);
+  const [editSachets, setEditSachets] = useState(1);
+
+  useEffect(() => {
+    fetchLogs();
+  }, []);
+
+  async function fetchLogs() {
+    try {
+      const { data } = await api.get('/protein/my-logs');
+      setLogs(data.logs);
+      setTotal(data.total);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function deleteLog(id) {
+    if (!confirm('Delete this entry?')) return;
+    try {
+      await api.delete(`/protein/log/${id}`);
+      setLogs((l) => l.filter((x) => x._id !== id));
+      setTotal((t) => t - 1);
+      toast.success('Entry deleted');
+    } catch {
+      toast.error('Failed to delete');
+    }
+  }
+
+  async function saveEdit(id) {
+    try {
+      const { data } = await api.patch(`/protein/log/${id}`, { sachets: editSachets });
+      setLogs((l) => l.map((x) => (x._id === id ? data : x)));
+      setEditingId(null);
+      toast.success('Updated');
+    } catch {
+      toast.error('Failed to update');
+    }
+  }
+
+  return (
+    <div className="min-h-dvh pb-safe px-5 pt-6">
+      <motion.div
+        className="flex items-center gap-3 mb-6"
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+      >
+        <button onClick={() => navigate('/protein')} className="p-2 glass rounded-xl text-white/60">
+          <ChevronLeft size={18} />
+        </button>
+        <div>
+          <h1 className="text-lg font-bold">My Logs</h1>
+          <p className="text-white/40 text-xs">{total} total entries</p>
+        </div>
+      </motion.div>
+
+      <div className="flex flex-col gap-2">
+        {loading
+          ? [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-16" />)
+          : logs.length === 0
+            ? (
+              <motion.div
+                className="glass rounded-2xl p-10 text-center"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+              >
+                <p className="text-white/40 text-sm">No logs yet</p>
+                <p className="text-white/30 text-xs mt-1">Start logging from the tracker!</p>
+              </motion.div>
+            )
+            : logs.map((log, i) => (
+                <motion.div
+                  key={log._id}
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 10 }}
+                  transition={{ delay: i * 0.03 }}
+                >
+                  <LogRow
+                    log={log}
+                    editing={editingId === log._id}
+                    editSachets={editSachets}
+                    onEdit={() => { setEditingId(log._id); setEditSachets(log.sachets); }}
+                    onSaveEdit={() => saveEdit(log._id)}
+                    onCancelEdit={() => setEditingId(null)}
+                    onChangeSachets={setEditSachets}
+                    onDelete={() => deleteLog(log._id)}
+                  />
+                </motion.div>
+              ))
+        }
+      </div>
+
+      <BottomNav />
+    </div>
+  );
+}
+
+function LogRow({ log, editing, editSachets, onEdit, onSaveEdit, onCancelEdit, onChangeSachets, onDelete }) {
+  return (
+    <GlassCard animate={false} className="flex items-center gap-3 py-3">
+      <div className="w-10 h-10 rounded-xl gradient-bg flex items-center justify-center text-lg font-black flex-shrink-0">
+        {editing ? (
+          <input
+            type="number"
+            min={1}
+            max={10}
+            value={editSachets}
+            onChange={(e) => onChangeSachets(Number(e.target.value))}
+            className="w-8 bg-transparent text-center text-white text-sm font-bold outline-none"
+          />
+        ) : log.sachets}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5">
+          <span className="font-semibold text-sm">{format(new Date(log.date), 'dd MMM yyyy')}</span>
+          {log.isBackdated && (
+            <span className="text-[10px] text-amber-400/70 font-medium">backdated</span>
+          )}
+        </div>
+        <p className="text-white/40 text-xs">
+          {log.note || `${log.sachets} sachet${log.sachets > 1 ? 's' : ''}`}
+          {' · '}
+          {formatDistanceToNow(new Date(log.loggedAt), { addSuffix: true })}
+        </p>
+      </div>
+      <div className="flex items-center gap-1 flex-shrink-0">
+        {editing ? (
+          <>
+            <button onClick={onSaveEdit} className="p-2 rounded-xl text-green-400 hover:bg-green-500/10">
+              <Check size={15} />
+            </button>
+            <button onClick={onCancelEdit} className="p-2 rounded-xl text-white/40 hover:bg-white/5">
+              <X size={15} />
+            </button>
+          </>
+        ) : (
+          <>
+            <button onClick={onEdit} className="p-2 rounded-xl text-white/30 hover:text-white hover:bg-white/5 transition-colors">
+              <Pencil size={14} />
+            </button>
+            <button onClick={onDelete} className="p-2 rounded-xl text-red-400/50 hover:text-red-400 hover:bg-red-500/10 transition-colors">
+              <Trash2 size={15} />
+            </button>
+          </>
+        )}
+      </div>
+    </GlassCard>
+  );
+}
