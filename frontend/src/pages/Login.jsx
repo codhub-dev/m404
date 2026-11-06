@@ -50,7 +50,7 @@ export default function Login() {
           )}
 
           <a
-            href={`${import.meta.env.VITE_API_URL || '/api'}/auth/google`}
+            href="/api/auth/google"
             className="flex items-center justify-center gap-3 w-full bg-white rounded-2xl py-3.5 text-gray-800 font-semibold text-sm hover:bg-gray-50 active:bg-gray-100 transition-colors shadow-lg shadow-black/20"
           >
             <GoogleIcon />
