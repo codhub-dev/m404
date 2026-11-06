@@ -7,11 +7,17 @@
   * {
     -webkit-tap-highlight-color: transparent;
   }
+  html {
+    /* fills top/bottom safe-area bands on iOS PWA so they're never white */
+    background-color: #0a0010;
+  }
   body {
     @apply bg-[#0a0010] text-white font-sans antialiased;
     background: linear-gradient(135deg, #0a0010 0%, #0d0a2e 50%, #0a1628 100%);
     background-attachment: fixed;
     min-height: 100dvh;
+    /* push content below the iOS status bar (black-translucent overlaps content) */
+    padding-top: env(safe-area-inset-top);
   }
 }
 
