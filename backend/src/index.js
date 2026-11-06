@@ -1,7 +1,6 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const path = require('path');
 const session = require('express-session');
 const MongoStore = require('connect-mongo');
 const passport = require('./config/passport');
@@ -43,11 +42,6 @@ app.use('/api/users', require('./routes/users'));
 app.use('/api/protein', require('./routes/protein'));
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
-
-// Serve React build
-const distPath = path.join(__dirname, '../../frontend/dist');
-app.use(express.static(distPath));
-app.get('*', (req, res) => res.sendFile(path.join(distPath, 'index.html')));
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
