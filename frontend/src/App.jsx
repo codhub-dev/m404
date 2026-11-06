@@ -3,6 +3,7 @@ import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from './context/AuthContext';
 import { ProtectedRoute, AdminRoute, GuestRoute } from './components/ui/RouteGuards';
 import Login from './pages/Login';
+import AuthCallback from './pages/AuthCallback';
 import Home from './pages/Home';
 import Profile from './pages/Profile';
 import AdminPanel from './pages/admin/AdminPanel';
@@ -31,6 +32,7 @@ export default function App() {
         <Routes>
           <Route element={<GuestRoute />}>
             <Route path="/login" element={<Login />} />
+            <Route path="/auth/callback" element={<AuthCallback />} />
           </Route>
 
           <Route element={<ProtectedRoute />}>
