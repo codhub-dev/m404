@@ -25,7 +25,7 @@ router.get('/current', requireAuth, requireProteinAccess, async (req, res) => {
   let totalUsed = 0;
   logs.forEach((log) => {
     const uid = log.userId.toString();
-    usageMap[uid] = (usageMap[uid] || 0) + log.sachets;
+    usageMap[uid] = Math.round(((usageMap[uid] || 0) + log.sachets) * 100) / 100;
     totalUsed += log.sachets;
   });
 
@@ -37,19 +37,20 @@ router.get('/current', requireAuth, requireProteinAccess, async (req, res) => {
 
   const usage = userIds.map((uid) => ({
     user: userMap[uid] ? { _id: userMap[uid]._id, name: userMap[uid].name, avatar: userMap[uid].avatar } : { _id: uid, name: 'Unknown' },
-    sachets: usageMap[uid],
+    sachets: Math.round(usageMap[uid]),
     pct: totalUsed > 0 ? Math.round((usageMap[uid] / totalUsed) * 100) : 0,
-    amountOwed: packet.cost && totalUsed > 0 ? ((usageMap[uid] / totalUsed) * packet.cost).toFixed(2) : null,
+    amountOwed: packet.cost && packet.totalSachets > 0 ? ((usageMap[uid] / packet.totalSachets) * packet.cost).toFixed(2) : null,
   })).sort((a, b) => b.sachets - a.sachets);
 
   const daysRunning = Math.max(1, Math.ceil((Date.now() - new Date(packet.openedAt)) / (1000 * 60 * 60 * 24)));
 
+  const totalUsedInt = Math.round(totalUsed);
   res.json({
     packet,
-    totalUsed,
-    remaining: Math.max(0, packet.totalSachets - totalUsed),
+    totalUsed: totalUsedInt,
+    remaining: Math.max(0, packet.totalSachets - totalUsedInt),
     daysRunning,
-    avgPerDay: (totalUsed / daysRunning).toFixed(1),
+    avgPerDay: (totalUsedInt / daysRunning).toFixed(1),
     usage,
   });
 });
