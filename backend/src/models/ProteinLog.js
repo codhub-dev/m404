@@ -4,7 +4,7 @@ const proteinLogSchema = new mongoose.Schema(
   {
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     date: { type: Date, required: true },
-    sachets: { type: Number, required: true, min: 1, max: 10, default: 1 },
+    sachets: { type: Number, required: true, min: 0.01, max: 99, default: 1 },
     note: { type: String, default: '' },
     isBackdated: { type: Boolean, default: false },
     loggedAt: { type: Date, default: Date.now },
