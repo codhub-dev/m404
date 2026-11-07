@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Plus, Minus, Calendar, Clock, ChevronRight, History, Users } from 'lucide-react';
+import { Plus, Minus, Calendar, Clock, ChevronRight, History, Users, RotateCcw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { format, formatDistanceToNow, subDays } from 'date-fns';
 import api from '../../utils/api';
@@ -21,6 +21,10 @@ export default function ProteinTracker() {
   const [logModal, setLogModal] = useState(false);
   const [logging, setLogging] = useState(false);
   const [form, setForm] = useState({ sachets: 1, date: format(new Date(), 'yyyy-MM-dd'), note: '', splitWith: [] });
+  const [packetHistory, setPacketHistory] = useState([]);
+  const [historyModal, setHistoryModal] = useState(false);
+  const [reactivating, setReactivating] = useState(false);
+  const [packetScoped, setPacketScoped] = useState(false);
 
   useEffect(() => {
     fetchAll();
@@ -31,9 +35,36 @@ export default function ProteinTracker() {
       api.get('/protein/leaderboard'),
       api.get('/packet/current'),
     ]);
-    if (lbRes.status === 'fulfilled') setLeaderboard(lbRes.value.data.leaderboard);
+    if (lbRes.status === 'fulfilled') {
+      setLeaderboard(lbRes.value.data.leaderboard);
+      setPacketScoped(lbRes.value.data.packetScoped);
+    }
     if (pkRes.status === 'fulfilled') setPacketData(pkRes.value.data);
     setLoading(false);
+  }
+
+  async function openPacketHistory() {
+    try {
+      const { data } = await api.get('/packet/history');
+      setPacketHistory(data.packets);
+      setHistoryModal(true);
+    } catch {
+      toast.error('Failed to load history');
+    }
+  }
+
+  async function handleReactivate(packetId) {
+    setReactivating(true);
+    try {
+      await api.post(`/packet/reactivate/${packetId}`);
+      toast.success('Switched — logs will now count against this packet');
+      setHistoryModal(false);
+      await fetchAll();
+    } catch {
+      toast.error('Failed to switch');
+    } finally {
+      setReactivating(false);
+    }
   }
 
   async function logSachets(sachetCount = 1, date = null, note = '', splitWithUserIds = []) {
@@ -54,8 +85,8 @@ export default function ProteinTracker() {
       await fetchAll();
       setLogModal(false);
       setForm({ sachets: 1, date: format(new Date(), 'yyyy-MM-dd'), note: '', splitWith: [] });
-    } catch {
-      toast.error('Failed to log');
+    } catch (err) {
+      toast.error(err?.response?.data?.error || 'Failed to log');
     } finally {
       setLogging(false);
     }
@@ -64,6 +95,7 @@ export default function ProteinTracker() {
   const myEntry = leaderboard.find((e) => e.user._id === user?._id);
   const maxTotal = Math.max(...leaderboard.map((e) => e.total), 1);
   const otherUsers = leaderboard.filter((e) => e.user._id !== user?._id);
+  const hasActivePacket = !!packetData?.packet && packetData.remaining > 0;
 
   return (
     <div className="min-h-dvh pb-safe px-4 pt-6">
@@ -78,7 +110,7 @@ export default function ProteinTracker() {
           <p className="text-white/40 text-sm">{format(new Date(), 'MMMM yyyy')}</p>
         </div>
         <button
-          onClick={() => navigate('/protein/history')}
+          onClick={openPacketHistory}
           className="p-2.5 glass rounded-xl text-white/50 hover:text-white transition-colors"
         >
           <History size={18} />
@@ -87,7 +119,7 @@ export default function ProteinTracker() {
 
       {/* Packet card */}
       {!loading && (
-        <PacketCard packetData={packetData} onRefresh={fetchAll} />
+        <PacketCard packetData={packetData} onRefresh={fetchAll} onOpenHistory={openPacketHistory} isAdmin={user?.role === 'admin'} />
       )}
 
       {/* My stats card */}
@@ -110,7 +142,7 @@ export default function ProteinTracker() {
                 referrerPolicy="no-referrer"
               />
               <div>
-                <p className="text-white/50 text-xs font-medium">This month</p>
+                <p className="text-white/50 text-xs font-medium">{packetScoped ? 'This packet' : 'This month'}</p>
                 <div className="flex items-end gap-1.5">
                   <motion.span
                     key={myEntry.total}
@@ -134,15 +166,16 @@ export default function ProteinTracker() {
             <div className="flex flex-col gap-2">
               <motion.button
                 onClick={() => logSachets(1)}
-                disabled={logging}
+                disabled={logging || !hasActivePacket}
                 whileTap={{ scale: 0.9 }}
-                className="w-14 h-14 rounded-2xl gradient-bg flex items-center justify-center text-white shadow-lg shadow-violet-900/50 disabled:opacity-50 active:opacity-80"
+                className="w-14 h-14 rounded-2xl gradient-bg flex items-center justify-center text-white shadow-lg shadow-violet-900/50 disabled:opacity-30 active:opacity-80"
               >
                 <Plus size={26} strokeWidth={2.5} />
               </motion.button>
               <button
                 onClick={() => setLogModal(true)}
-                className="w-14 h-8 rounded-xl glass flex items-center justify-center text-white/50 text-xs font-semibold hover:text-white transition-colors"
+                disabled={!hasActivePacket}
+                className="w-14 h-8 rounded-xl glass flex items-center justify-center text-white/50 text-xs font-semibold hover:text-white transition-colors disabled:opacity-30"
               >
                 custom
               </button>
@@ -160,18 +193,18 @@ export default function ProteinTracker() {
       >
         <motion.button
           onClick={() => logSachets(1, format(subDays(new Date(), 1), 'yyyy-MM-dd'))}
-          disabled={logging}
+          disabled={logging || !hasActivePacket}
           whileTap={{ scale: 0.96 }}
-          className="flex-1 glass rounded-2xl py-3.5 flex items-center justify-center gap-2 text-sm font-medium text-white/60 hover:text-white hover:bg-white/[0.08] transition-all disabled:opacity-40"
+          className="flex-1 glass rounded-2xl py-3.5 flex items-center justify-center gap-2 text-sm font-medium text-white/60 hover:text-white hover:bg-white/[0.08] transition-all disabled:opacity-30"
         >
           <Clock size={15} />
           Yesterday
         </motion.button>
         <motion.button
           onClick={() => setLogModal(true)}
-          disabled={logging}
+          disabled={logging || !hasActivePacket}
           whileTap={{ scale: 0.96 }}
-          className="flex-1 glass rounded-2xl py-3.5 flex items-center justify-center gap-2 text-sm font-medium text-white/60 hover:text-white hover:bg-white/[0.08] transition-all disabled:opacity-40"
+          className="flex-1 glass rounded-2xl py-3.5 flex items-center justify-center gap-2 text-sm font-medium text-white/60 hover:text-white hover:bg-white/[0.08] transition-all disabled:opacity-30"
         >
           <Calendar size={15} />
           Pick date / split
@@ -185,7 +218,7 @@ export default function ProteinTracker() {
         transition={{ delay: 0.15 }}
       >
         <p className="text-[11px] font-bold text-white/30 uppercase tracking-widest mb-3 px-1">
-          Monthly Leaderboard
+          {packetScoped ? 'Packet Leaderboard' : 'Monthly Leaderboard'}
         </p>
 
         <div className="flex flex-col gap-2.5">
@@ -213,6 +246,15 @@ export default function ProteinTracker() {
         otherUsers={otherUsers}
         onSubmit={() => logSachets(form.sachets, form.date, form.note, form.splitWith)}
         loading={logging}
+      />
+
+      {/* Packet history modal */}
+      <PacketHistoryModal
+        open={historyModal}
+        onClose={() => setHistoryModal(false)}
+        packets={packetHistory}
+        onReactivate={handleReactivate}
+        loading={reactivating}
       />
 
       <BottomNav />
@@ -357,6 +399,46 @@ function LogModal({ open, onClose, form, setForm, otherUsers, onSubmit, loading 
             ? `Log ${perPerson} sachet each (${total} people)`
             : `Log ${form.sachets % 1 === 0 ? form.sachets : form.sachets.toFixed(1)} sachet${form.sachets !== 1 ? 's' : ''}`}
         </GlassButton>
+      </div>
+    </Modal>
+  );
+}
+
+function PacketHistoryModal({ open, onClose, packets, onReactivate, loading }) {
+  if (!packets.length) {
+    return (
+      <Modal open={open} onClose={onClose} title="Past Packets">
+        <p className="text-sm text-white/40 text-center py-4">No closed packets yet.</p>
+      </Modal>
+    );
+  }
+  return (
+    <Modal open={open} onClose={onClose} title="Past Packets">
+      <div className="flex flex-col gap-2">
+        <p className="text-xs text-white/40 mb-1">Switching to a packet closes the current one and resumes tracking against it.</p>
+        {packets.map((p) => (
+          <div key={p._id} className="glass rounded-xl p-3 flex items-center gap-3">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-white">
+                {p.name ? p.name : `${p.totalSachets} sachets`}
+                {p.name ? <span className="text-white/40 font-normal"> · {p.totalSachets} sachets</span> : null}
+                {p.cost ? <span className="text-white/40 font-normal"> · ₹{p.cost}</span> : null}
+              </p>
+              <p className="text-xs text-white/30 mt-0.5">
+                {format(new Date(p.openedAt), 'dd MMM yyyy')} — {p.closedAt ? format(new Date(p.closedAt), 'dd MMM yyyy') : 'open'}
+              </p>
+              {p.note && <p className="text-xs text-white/30 truncate">{p.note}</p>}
+            </div>
+            <button
+              onClick={() => onReactivate(p._id)}
+              disabled={loading}
+              className="flex items-center gap-1 px-3 py-1.5 glass rounded-xl text-xs font-semibold text-violet-400 hover:bg-violet-500/10 transition-colors disabled:opacity-40 flex-shrink-0"
+            >
+              <RotateCcw size={11} />
+              Switch
+            </button>
+          </div>
+        ))}
       </div>
     </Modal>
   );

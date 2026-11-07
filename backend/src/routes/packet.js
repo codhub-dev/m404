@@ -17,7 +17,8 @@ router.get('/current', requireAuth, requireProteinAccess, async (req, res) => {
   const packet = await Packet.findOne({ isActive: true }).populate('openedBy', 'name avatar');
   if (!packet) return res.json({ packet: null });
 
-  const logs = await ProteinLog.find({ date: { $gte: packet.openedAt } });
+  // Filter logs by packetId for accuracy
+  const logs = await ProteinLog.find({ packetId: packet._id });
 
   // Aggregate per user
   const usageMap = {};
@@ -55,16 +56,16 @@ router.get('/current', requireAuth, requireProteinAccess, async (req, res) => {
 
 // POST /api/packet/open — open a new packet (closes any existing active one first)
 router.post('/open', requireAuth, requireProteinAccess, async (req, res) => {
-  const { totalSachets, cost, currency, note } = req.body;
+  const { name, totalSachets, cost, currency, note } = req.body;
   if (!totalSachets || totalSachets < 1) return res.status(400).json({ error: 'totalSachets required' });
 
-  // Close any currently active packet
   await Packet.updateMany({ isActive: true }, { isActive: false, closedAt: new Date() });
 
   const packet = await Packet.create({
+    name: name || '',
     totalSachets: Number(totalSachets),
     cost: cost ? Number(cost) : null,
-    currency: currency || '£',
+    currency: currency || '₹',
     openedBy: req.user._id,
     note: note || '',
   });
@@ -96,6 +97,23 @@ router.get('/history', requireAuth, requireProteinAccess, async (req, res) => {
     .populate('openedBy', 'name');
   const total = await Packet.countDocuments({ isActive: false });
   res.json({ packets, total });
+});
+
+// POST /api/packet/reactivate/:id — reopen a closed packet for editing
+// Closes the current active packet first
+router.post('/reactivate/:id', requireAuth, requireProteinAccess, async (req, res) => {
+  const packet = await Packet.findById(req.params.id);
+  if (!packet) return res.status(404).json({ error: 'Packet not found' });
+  if (packet.isActive) return res.json({ packet });
+
+  await Packet.updateMany({ isActive: true }, { isActive: false, closedAt: new Date() });
+
+  packet.isActive = true;
+  packet.closedAt = null;
+  await packet.save();
+  await packet.populate('openedBy', 'name avatar');
+
+  res.json({ packet });
 });
 
 module.exports = router;

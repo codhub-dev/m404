@@ -23,17 +23,29 @@ export default function MyLogs() {
   const [logs, setLogs] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [activePacketId, setActivePacketId] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [editSachets, setEditSachets] = useState(1);
 
   useEffect(() => {
-    fetchLogs();
-  }, [uid]);
+    async function init() {
+      try {
+        const { data } = await api.get('/packet/current');
+        setActivePacketId(data.packet?._id || null);
+      } catch {}
+    }
+    init();
+  }, []);
+
+  useEffect(() => {
+    if (activePacketId !== null || !loading) fetchLogs();
+  }, [uid, activePacketId]);
 
   async function fetchLogs() {
     setLoading(true);
     try {
-      const endpoint = isOwn ? '/protein/my-logs' : `/protein/user/${uid}/logs`;
+      const params = activePacketId ? `?packetId=${activePacketId}` : '';
+      const endpoint = isOwn ? `/protein/my-logs${params}` : `/protein/user/${uid}/logs${params}`;
       const { data } = await api.get(endpoint);
       setLogs(data.logs);
       setTotal(data.total);
@@ -42,13 +54,19 @@ export default function MyLogs() {
     }
   }
 
-  async function deleteLog(id) {
-    if (!confirm('Delete this entry?')) return;
+  async function deleteLog(id, isSplit) {
+    const msg = isSplit
+      ? 'This was a split entry — deleting it will remove it for everyone involved. Continue?'
+      : 'Delete this entry?';
+    if (!confirm(msg)) return;
     try {
-      await api.delete(`/protein/log/${id}`);
-      setLogs((l) => l.filter((x) => x._id !== id));
-      setTotal((t) => t - 1);
-      toast.success('Entry deleted');
+      const { data } = await api.delete(`/protein/log/${id}`);
+      if (data.wasSplit) {
+        toast.success(`Split entry removed for all ${data.deletedCount} participants`);
+      } else {
+        toast.success('Entry deleted');
+      }
+      fetchLogs();
     } catch {
       toast.error('Failed to delete');
     }
@@ -77,7 +95,7 @@ export default function MyLogs() {
         </button>
         <div>
           <h1 className="text-lg font-bold">{displayName}</h1>
-          <p className="text-white/40 text-xs">{total} total entries</p>
+          <p className="text-white/40 text-xs">{total} {activePacketId ? 'entries this packet' : 'total entries'}</p>
         </div>
       </motion.div>
 
@@ -110,7 +128,7 @@ export default function MyLogs() {
                     onSaveEdit={() => saveEdit(log._id)}
                     onCancelEdit={() => setEditingId(null)}
                     onChangeSachets={setEditSachets}
-                    onDelete={() => deleteLog(log._id)}
+                    onDelete={() => deleteLog(log._id, !!log.splitGroupId)}
                   />
                 </motion.div>
               ))
@@ -138,10 +156,13 @@ function LogRow({ log, isOwn, editing, editSachets, onEdit, onSaveEdit, onCancel
         ) : log.sachets}
       </div>
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 flex-wrap">
           <span className="font-semibold text-sm">{format(new Date(log.date), 'dd MMM yyyy')}</span>
           {log.isBackdated && (
             <span className="text-[10px] text-amber-400/70 font-medium">backdated</span>
+          )}
+          {log.splitGroupId && (
+            <span className="text-[10px] text-violet-400/80 font-medium bg-violet-500/10 px-1.5 py-0.5 rounded-full">split</span>
           )}
         </div>
         <p className="text-white/40 text-xs">
