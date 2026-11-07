@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Plus, Minus, Calendar, Clock, ChevronRight, History } from 'lucide-react';
+import { Plus, Minus, Calendar, Clock, ChevronRight, History, Users } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { format, formatDistanceToNow, subDays } from 'date-fns';
 import api from '../../utils/api';
@@ -9,42 +9,51 @@ import GlassButton from '../../components/ui/GlassButton';
 import Modal from '../../components/ui/Modal';
 import BottomNav from '../../components/ui/BottomNav';
 import { Skeleton } from '../../components/ui/Loader';
+import PacketCard from '../../components/protein/PacketCard';
 import toast from 'react-hot-toast';
 
 export default function ProteinTracker() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [leaderboard, setLeaderboard] = useState([]);
+  const [packetData, setPacketData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [logModal, setLogModal] = useState(false);
   const [logging, setLogging] = useState(false);
-  const [form, setForm] = useState({ sachets: 1, date: format(new Date(), 'yyyy-MM-dd'), note: '' });
+  const [form, setForm] = useState({ sachets: 1, date: format(new Date(), 'yyyy-MM-dd'), note: '', splitWith: [] });
 
   useEffect(() => {
-    fetchLeaderboard();
+    fetchAll();
   }, []);
 
-  async function fetchLeaderboard() {
-    try {
-      const { data } = await api.get('/protein/leaderboard');
-      setLeaderboard(data.leaderboard);
-    } finally {
-      setLoading(false);
-    }
+  async function fetchAll() {
+    const [lbRes, pkRes] = await Promise.allSettled([
+      api.get('/protein/leaderboard'),
+      api.get('/packet/current'),
+    ]);
+    if (lbRes.status === 'fulfilled') setLeaderboard(lbRes.value.data.leaderboard);
+    if (pkRes.status === 'fulfilled') setPacketData(pkRes.value.data);
+    setLoading(false);
   }
 
-  async function logSachets(sachetCount = 1, date = null, note = '') {
+  async function logSachets(sachetCount = 1, date = null, note = '', splitWithUserIds = []) {
     setLogging(true);
     try {
       await api.post('/protein/log', {
         sachets: sachetCount,
         date: date || format(new Date(), 'yyyy-MM-dd'),
         note,
+        splitWithUserIds,
       });
-      toast.success(`+${sachetCount} sachet${sachetCount > 1 ? 's' : ''} logged!`);
-      await fetchLeaderboard();
+      const total = splitWithUserIds.length + 1;
+      const per = Math.round((sachetCount / total) * 100) / 100;
+      const msg = total > 1
+        ? `+${per} sachet each (${total} people)`
+        : `+${sachetCount} sachet${sachetCount !== 1 ? 's' : ''} logged!`;
+      toast.success(msg);
+      await fetchAll();
       setLogModal(false);
-      setForm({ sachets: 1, date: format(new Date(), 'yyyy-MM-dd'), note: '' });
+      setForm({ sachets: 1, date: format(new Date(), 'yyyy-MM-dd'), note: '', splitWith: [] });
     } catch {
       toast.error('Failed to log');
     } finally {
@@ -54,6 +63,7 @@ export default function ProteinTracker() {
 
   const myEntry = leaderboard.find((e) => e.user._id === user?._id);
   const maxTotal = Math.max(...leaderboard.map((e) => e.total), 1);
+  const otherUsers = leaderboard.filter((e) => e.user._id !== user?._id);
 
   return (
     <div className="min-h-dvh pb-safe px-4 pt-6">
@@ -75,6 +85,11 @@ export default function ProteinTracker() {
         </button>
       </motion.div>
 
+      {/* Packet card */}
+      {!loading && (
+        <PacketCard packetData={packetData} onRefresh={fetchAll} />
+      )}
+
       {/* My stats card */}
       {myEntry && (
         <motion.div
@@ -84,7 +99,6 @@ export default function ProteinTracker() {
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: 0.05 }}
         >
-          {/* Glow */}
           <div className="absolute -top-6 -right-6 w-32 h-32 rounded-full bg-violet-600/20 blur-2xl pointer-events-none" />
 
           <div className="relative flex items-center justify-between">
@@ -105,9 +119,9 @@ export default function ProteinTracker() {
                     animate={{ scale: 1, opacity: 1 }}
                     transition={{ type: 'spring', damping: 15 }}
                   >
-                    {myEntry.total}
+                    {myEntry.total % 1 === 0 ? myEntry.total : myEntry.total.toFixed(1)}
                   </motion.span>
-                  <span className="text-white/40 text-sm pb-1">{myEntry.total === 1 ? 'sachet' : 'sachets'}</span>
+                  <span className="text-white/40 text-sm pb-1">sachets</span>
                 </div>
                 {myEntry.lastLog && (
                   <p className="text-white/30 text-xs mt-0.5">
@@ -160,7 +174,7 @@ export default function ProteinTracker() {
           className="flex-1 glass rounded-2xl py-3.5 flex items-center justify-center gap-2 text-sm font-medium text-white/60 hover:text-white hover:bg-white/[0.08] transition-all disabled:opacity-40"
         >
           <Calendar size={15} />
-          Pick date
+          Pick date / split
         </motion.button>
       </motion.div>
 
@@ -190,87 +204,161 @@ export default function ProteinTracker() {
         </div>
       </motion.div>
 
-      {/* Custom log modal */}
-      <Modal open={logModal} onClose={() => setLogModal(false)} title="Log Protein">
-        <div className="flex flex-col gap-4">
-          <div>
-            <label className="text-xs text-white/50 font-medium mb-3 block">Sachets</label>
-            <div className="flex items-center justify-center gap-6">
-              <motion.button
-                whileTap={{ scale: 0.9 }}
-                onClick={() => setForm((f) => ({ ...f, sachets: Math.max(1, f.sachets - 1) }))}
-                className="w-12 h-12 glass rounded-2xl flex items-center justify-center text-white/70 hover:text-white"
-              >
-                <Minus size={20} />
-              </motion.button>
-              <motion.span
-                key={form.sachets}
-                className="text-5xl font-black w-16 text-center gradient-text"
-                initial={{ scale: 1.3, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                transition={{ type: 'spring', damping: 15 }}
-              >
-                {form.sachets}
-              </motion.span>
-              <motion.button
-                whileTap={{ scale: 0.9 }}
-                onClick={() => setForm((f) => ({ ...f, sachets: Math.min(10, f.sachets + 1) }))}
-                className="w-12 h-12 rounded-2xl gradient-bg flex items-center justify-center text-white shadow-lg shadow-violet-900/40"
-              >
-                <Plus size={20} />
-              </motion.button>
-            </div>
-          </div>
-
-          <div>
-            <label className="text-xs text-white/50 font-medium mb-1.5 block">Date</label>
-            <div className="flex gap-2 mb-2">
-              <button
-                onClick={() => setForm((f) => ({ ...f, date: format(new Date(), 'yyyy-MM-dd') }))}
-                className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all ${
-                  form.date === format(new Date(), 'yyyy-MM-dd') ? 'gradient-bg text-white' : 'glass text-white/50'
-                }`}
-              >
-                Today
-              </button>
-              <button
-                onClick={() => setForm((f) => ({ ...f, date: format(subDays(new Date(), 1), 'yyyy-MM-dd') }))}
-                className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all ${
-                  form.date === format(subDays(new Date(), 1), 'yyyy-MM-dd') ? 'gradient-bg text-white' : 'glass text-white/50'
-                }`}
-              >
-                Yesterday
-              </button>
-            </div>
-            <input
-              type="date"
-              value={form.date}
-              max={format(new Date(), 'yyyy-MM-dd')}
-              onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
-              className="w-full glass rounded-xl px-4 py-3 text-sm text-white outline-none border border-white/10 [color-scheme:dark]"
-            />
-          </div>
-
-          <div>
-            <label className="text-xs text-white/50 font-medium mb-1.5 block">Note (optional)</label>
-            <input
-              type="text"
-              value={form.note}
-              onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))}
-              placeholder="e.g. Post-workout"
-              className="w-full glass rounded-xl px-4 py-3 text-sm text-white placeholder-white/30 outline-none border border-white/10"
-            />
-          </div>
-
-          <GlassButton size="lg" className="w-full" onClick={() => logSachets(form.sachets, form.date, form.note)} loading={logging}>
-            <Plus size={16} />
-            Log {form.sachets} sachet{form.sachets > 1 ? 's' : ''}
-          </GlassButton>
-        </div>
-      </Modal>
+      {/* Custom log + split modal */}
+      <LogModal
+        open={logModal}
+        onClose={() => { setLogModal(false); setForm({ sachets: 1, date: format(new Date(), 'yyyy-MM-dd'), note: '', splitWith: [] }); }}
+        form={form}
+        setForm={setForm}
+        otherUsers={otherUsers}
+        onSubmit={() => logSachets(form.sachets, form.date, form.note, form.splitWith)}
+        loading={logging}
+      />
 
       <BottomNav />
     </div>
+  );
+}
+
+function LogModal({ open, onClose, form, setForm, otherUsers, onSubmit, loading }) {
+  const total = 1 + form.splitWith.length;
+  const perPerson = Math.round((form.sachets / total) * 100) / 100;
+
+  function toggleSplit(uid) {
+    setForm((f) => ({
+      ...f,
+      splitWith: f.splitWith.includes(uid)
+        ? f.splitWith.filter((id) => id !== uid)
+        : [...f.splitWith, uid],
+    }));
+  }
+
+  function adjustSachets(delta) {
+    setForm((f) => {
+      const next = Math.round((f.sachets + delta) * 10) / 10;
+      return { ...f, sachets: Math.max(0.5, Math.min(10, next)) };
+    });
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="Log Protein">
+      <div className="flex flex-col gap-4">
+        {/* Sachet counter */}
+        <div>
+          <label className="text-xs text-white/50 font-medium mb-3 block">Sachets used in total</label>
+          <div className="flex items-center justify-center gap-6">
+            <div className="flex flex-col gap-1.5">
+              <motion.button whileTap={{ scale: 0.9 }}
+                onClick={() => adjustSachets(-1)}
+                className="w-10 h-10 glass rounded-xl flex items-center justify-center text-white/70 text-lg font-bold">−1</motion.button>
+              <motion.button whileTap={{ scale: 0.9 }}
+                onClick={() => adjustSachets(-0.5)}
+                className="w-10 h-8 glass rounded-xl flex items-center justify-center text-white/40 text-xs">−½</motion.button>
+            </div>
+            <motion.span
+              key={form.sachets}
+              className="text-5xl font-black w-20 text-center gradient-text"
+              initial={{ scale: 1.2, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ type: 'spring', damping: 15 }}
+            >
+              {form.sachets % 1 === 0 ? form.sachets : form.sachets.toFixed(1)}
+            </motion.span>
+            <div className="flex flex-col gap-1.5">
+              <motion.button whileTap={{ scale: 0.9 }}
+                onClick={() => adjustSachets(1)}
+                className="w-10 h-10 rounded-xl gradient-bg flex items-center justify-center text-white text-lg font-bold shadow-lg shadow-violet-900/40">+1</motion.button>
+              <motion.button whileTap={{ scale: 0.9 }}
+                onClick={() => adjustSachets(0.5)}
+                className="w-10 h-8 glass rounded-xl flex items-center justify-center text-white/40 text-xs">+½</motion.button>
+            </div>
+          </div>
+        </div>
+
+        {/* Split with */}
+        {otherUsers.length > 0 && (
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <Users size={13} className="text-white/40" />
+              <label className="text-xs text-white/50 font-medium">Split with</label>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              {otherUsers.map(({ user }) => {
+                const selected = form.splitWith.includes(user._id);
+                return (
+                  <button
+                    key={user._id}
+                    onClick={() => toggleSplit(user._id)}
+                    className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-left ${
+                      selected ? 'bg-violet-500/20 border border-violet-500/40' : 'glass border border-transparent'
+                    }`}
+                  >
+                    <img
+                      src={user.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${user.name}`}
+                      alt={user.name}
+                      className="w-7 h-7 rounded-lg object-cover flex-shrink-0"
+                      referrerPolicy="no-referrer"
+                    />
+                    <span className="text-sm text-white/80 flex-1">{user.name}</span>
+                    {selected && <span className="text-xs text-violet-400 font-semibold">✓</span>}
+                  </button>
+                );
+              })}
+            </div>
+            {form.splitWith.length > 0 && (
+              <p className="text-xs text-white/40 mt-2 text-center">
+                {form.sachets % 1 === 0 ? form.sachets : form.sachets.toFixed(1)} sachets ÷ {total} people = <span className="text-violet-400 font-semibold">{perPerson}</span> each
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Date */}
+        <div>
+          <label className="text-xs text-white/50 font-medium mb-1.5 block">Date</label>
+          <div className="flex gap-2 mb-2">
+            <button
+              onClick={() => setForm((f) => ({ ...f, date: format(new Date(), 'yyyy-MM-dd') }))}
+              className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+                form.date === format(new Date(), 'yyyy-MM-dd') ? 'gradient-bg text-white' : 'glass text-white/50'
+              }`}
+            >Today</button>
+            <button
+              onClick={() => setForm((f) => ({ ...f, date: format(subDays(new Date(), 1), 'yyyy-MM-dd') }))}
+              className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+                form.date === format(subDays(new Date(), 1), 'yyyy-MM-dd') ? 'gradient-bg text-white' : 'glass text-white/50'
+              }`}
+            >Yesterday</button>
+          </div>
+          <input
+            type="date"
+            value={form.date}
+            max={format(new Date(), 'yyyy-MM-dd')}
+            onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
+            className="w-full glass rounded-xl px-4 py-3 text-sm text-white outline-none border border-white/10 [color-scheme:dark]"
+          />
+        </div>
+
+        {/* Note */}
+        <div>
+          <label className="text-xs text-white/50 font-medium mb-1.5 block">Note (optional)</label>
+          <input
+            type="text"
+            value={form.note}
+            onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))}
+            placeholder="e.g. Post-workout"
+            className="w-full glass rounded-xl px-4 py-3 text-sm text-white placeholder-white/30 outline-none border border-white/10"
+          />
+        </div>
+
+        <GlassButton size="lg" className="w-full" onClick={onSubmit} loading={loading}>
+          <Plus size={16} />
+          {form.splitWith.length > 0
+            ? `Log ${perPerson} sachet each (${total} people)`
+            : `Log ${form.sachets % 1 === 0 ? form.sachets : form.sachets.toFixed(1)} sachet${form.sachets !== 1 ? 's' : ''}`}
+        </GlassButton>
+      </div>
+    </Modal>
   );
 }
 
@@ -287,7 +375,6 @@ function LeaderboardRow({ entry, rank, maxTotal, isMe }) {
       transition={{ type: 'spring', stiffness: 400, damping: 25 }}
       onClick={() => navigate(`/protein/history?uid=${entry.user._id}&name=${encodeURIComponent(entry.user.name)}`)}
     >
-      {/* Progress fill */}
       <motion.div
         className="absolute inset-0 origin-left"
         style={{ background: isMe ? 'rgba(109,40,217,0.15)' : 'rgba(255,255,255,0.03)' }}
@@ -297,14 +384,12 @@ function LeaderboardRow({ entry, rank, maxTotal, isMe }) {
       />
 
       <div className="relative flex items-center gap-3 px-4 py-3.5">
-        {/* Rank */}
         <div className="w-8 text-center flex-shrink-0">
           {rank <= 3
             ? <span className="text-2xl">{medals[rank - 1]}</span>
             : <span className="text-white/25 text-sm font-bold">{rank}</span>}
         </div>
 
-        {/* Avatar */}
         <img
           src={entry.user.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${entry.user.name}`}
           alt={entry.user.name}
@@ -312,7 +397,6 @@ function LeaderboardRow({ entry, rank, maxTotal, isMe }) {
           referrerPolicy="no-referrer"
         />
 
-        {/* Info */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">
             <span className={`font-bold text-sm truncate ${isMe ? 'text-white' : 'text-white/90'}`}>
@@ -327,15 +411,12 @@ function LeaderboardRow({ entry, rank, maxTotal, isMe }) {
             : <p className="text-white/20 text-xs mt-0.5">no logs yet</p>}
         </div>
 
-        {/* Score */}
         <div className="text-right flex-shrink-0 flex items-center gap-1.5">
           <div>
             <span className={`text-2xl font-black ${isMe ? 'gradient-text' : 'text-white'}`}>
-              {entry.total}
+              {entry.total % 1 === 0 ? entry.total : entry.total.toFixed(1)}
             </span>
-            <p className="text-white/30 text-[11px] leading-none mt-0.5">
-              {entry.total === 1 ? 'sachet' : 'sachets'}
-            </p>
+            <p className="text-white/30 text-[11px] leading-none mt-0.5">sachets</p>
           </div>
           <ChevronRight size={14} className="text-white/20 flex-shrink-0" />
         </div>

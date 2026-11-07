@@ -62,38 +62,43 @@ router.get('/my-logs', requireAuth, requireProteinAccess, async (req, res) => {
 });
 
 // POST /api/protein/log — add or update a log for a specific date
+// splitWithUserIds: array of other user IDs to share the sachets with equally
 router.post('/log', requireAuth, requireProteinAccess, async (req, res) => {
-  const { sachets = 1, date, note = '' } = req.body;
+  const { sachets = 1, date, note = '', splitWithUserIds = [] } = req.body;
+
+  const totalSachets = Number(sachets);
+  if (totalSachets <= 0 || totalSachets > 99) return res.status(400).json({ error: 'Invalid sachet count' });
 
   const logDate = date ? parseISO(date) : new Date();
   const isBackdated = startOfDay(logDate) < startOfDay(new Date());
-
   const dayStart = startOfDay(logDate);
   const dayEnd = endOfDay(logDate);
 
-  // If a log already exists for that day, add sachets to it
-  let log = await ProteinLog.findOne({
-    userId: req.user._id,
-    date: { $gte: dayStart, $lte: dayEnd },
-  });
+  // Deduplicate and exclude self
+  const otherIds = [...new Set(splitWithUserIds.map(String).filter((id) => id !== req.user._id.toString()))];
+  const participants = 1 + otherIds.length;
+  // Round per-person share to 2 decimal places
+  const perPerson = Math.round((totalSachets / participants) * 100) / 100;
 
-  if (log) {
-    log.sachets = Math.min(log.sachets + Number(sachets), 99);
-    log.note = note || log.note;
-    log.loggedAt = new Date();
-    await log.save();
-  } else {
-    log = await ProteinLog.create({
-      userId: req.user._id,
-      date: dayStart,
-      sachets: Number(sachets),
-      note,
-      isBackdated,
-      loggedAt: new Date(),
-    });
+  async function upsertLog(userId, amount) {
+    let log = await ProteinLog.findOne({ userId, date: { $gte: dayStart, $lte: dayEnd } });
+    if (log) {
+      log.sachets = Math.min(Math.round((log.sachets + amount) * 100) / 100, 99);
+      log.note = note || log.note;
+      log.loggedAt = new Date();
+      await log.save();
+    } else {
+      log = await ProteinLog.create({ userId, date: dayStart, sachets: amount, note, isBackdated, loggedAt: new Date() });
+    }
+    return log;
   }
 
-  res.status(201).json(log);
+  const myLog = await upsertLog(req.user._id, perPerson);
+  for (const uid of otherIds) {
+    await upsertLog(uid, perPerson);
+  }
+
+  res.status(201).json(myLog);
 });
 
 // DELETE /api/protein/log/:id — delete a specific log

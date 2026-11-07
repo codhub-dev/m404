@@ -22,6 +22,7 @@ app.use(passport.initialize());
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/users', require('./routes/users'));
 app.use('/api/protein', require('./routes/protein'));
+app.use('/api/packet', require('./routes/packet'));
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 
